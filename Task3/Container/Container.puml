@@ -1,0 +1,54 @@
+@startuml
+title Открытие депозитного счета Диаграмма контейнеров
+
+top to bottom direction
+
+!include C4_Container.puml
+
+Person(client, "Клиент", "Новый или существующий клиент банка")
+Person(callManager, "Менеджер кол-центра", "Обрабатывает заявки новых клиентов")
+Person(backOffice, "Сотрудник бэк-офиса", "Подтверждает условия депозита и ведёт ставки")
+Person(branchEmployee, "Сотрудник отделения", "Проводит идентификацию новых клиентов")
+
+System_Ext(Website, "Сайт банка", "Показывает депозитные продукты и позволяет новому клиенту оставить заявку")
+System_Ext(InternetBank, "Интернет-банк", "Позволяет существующему клиенту просматривать ставки и подавать заявку на депозит")
+System_Ext(CallCenterSystem, "Система кол-центра", "Используется менеджерами для обработки заявок новых клиентов")
+System_Ext(ABS, "АБС", "Автоматизированная банковская система банка")
+System_Ext(SMSGateway, "SMS-шлюз", "Отправляет SMS-коды и SMS-уведомления клиентам")
+
+System_Boundary(DepositMVP, "Система открытия депозитов") { 
+    Container(DepositService, "Deposit Application Service", ".NET", "Обрабатывает заявки на открытие депозитов, управляет сценариями для новых и существующих клиентов, координирует взаимодействие с внутренними и внешними системами")
+    
+    Container(NotificationService, "Notification Service", ".NET", "Инициирует отправку SMS-кодов подтверждения и SMS-уведомлений клиентам")
+    
+    Container(ABSACL, "ABS ACL", ".NET", "Anti-Corruption Layer для изоляции новой депозитной системы от легаси-модели и интерфейсов АБС")
+
+    ContainerQueue(ABSCommandQueue, "ABS Command Queue", "RabbitMQ", "Очередь команд подтверждения заявок при недоступности АБС")
+
+    Container(ABSSyncWorker, "ABS Sync Worker", ".NET Worker", "Фоново читает очередь, выполняет ретраи и дозавершает заявки в АБС после восстановления")
+    
+    ContainerDb(DepositDb, "Deposit DB", "MS SQL", "Хранит заявки на депозиты, статусы обработки, депозитные продукты")
+}
+
+Rel(client, Website, "Просматривает депозиты и оставляет заявку", "HTTPS")
+Rel(client, InternetBank, "Просматривает ставки и подаёт заявку", "HTTPS")
+Rel(callManager, CallCenterSystem, "Обрабатывает заявки новых клиентов")
+Rel(backOffice, ABS, "Подтверждает условия депозита, работает со ставками", "HTTPS / Web")
+Rel(branchEmployee, ABS, "Проводит идентификацию и завершает оформление нового клиента")
+
+Rel(Website, DepositService, "Передаёт заявку нового клиента и запрашивает список депозитов", "HTTPS")
+Rel(InternetBank, DepositService, "Передаёт заявку существующего клиента и запрашивает ставки", "HTTPS")
+
+Rel(DepositService, NotificationService, "Инициирует отправку SMS-кодов и уведомлений")
+Rel(DepositService, ABSACL, "Передаёт команды и запросы для операций по депозиту")
+Rel(DepositService, ABSCommandQueue, "Публикует команды при недоступности АБС")
+Rel(DepositService, DepositDb, "Сохраняет заявки, статусы и историю обработки", "SQL")
+
+Rel(DepositService, CallCenterSystem, "Передаёт заявки новых клиентов для обработки")
+Rel(ABSCommandQueue, ABSSyncWorker, "Передаёт отложенные команды")
+Rel(ABSSyncWorker, ABSACL, "Повторно отправляет команды с retry/backoff")
+Rel(ABSSyncWorker, DepositDb, "Обновляет статусы обработки", "SQL")
+Rel(ABSACL, ABS, "Вызывает интерфейсы АБС в адаптированном формате")
+Rel(NotificationService, SMSGateway, "Отправляет SMS-коды и уведомления")
+
+@enduml
